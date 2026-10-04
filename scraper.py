@@ -2,11 +2,72 @@ import json
 import time
 import re
 import cloudscraper
-from bs4 import BeautifulSoup
 
 scraper = cloudscraper.create_scraper(
     browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
 )
+
+def get_livewire_download_link(page_url):
+    try:
+        # 1. Oyun sayfasını çek
+        res = scraper.get(page_url, timeout=10)
+        if res.status_code != 200:
+            return None
+
+        # Sayfada doğrudan /download/ linki hazır varsa al
+        direct_links = re.findall(r'https?://ankergames\.net/download/[A-Za-z0-9_=-]+', res.text)
+        if direct_links:
+            return list(set(direct_links))
+
+        # 2. Livewire snapshot ve CSRF Token verilerini ayıkla
+        wire_match = re.search(r'wire:snapshot="([^"]+)"', res.text)
+        csrf_match = re.search(r'name="csrf-token"\s+content="([^"]+)"', res.text) or re.search(r'csrf-token":\s*"([^"]+)"', res.text)
+
+        if not wire_match:
+            return None
+
+        snapshot = wire_match.group(1).replace('&quot;', '"')
+        csrf_token = csrf_match.group(1) if csrf_match else ""
+
+        # Livewire güncelleme isteği için hazırlık
+        headers = {
+            'Content-Type': 'application/json',
+            'X-Livewire': 'true',
+            'X-CSRF-TOKEN': csrf_token,
+            'Referer': page_url
+        }
+
+        payload = {
+            "components": [
+                {
+                    "snapshot": snapshot,
+                    "updates": {},
+                    "calls": [
+                        {
+                            "path": "",
+                            "method": "generateDownloadUrl",
+                            "params": []
+                        }
+                    ]
+                }
+            ]
+        }
+
+        # 3. Livewire endpoint'ine POST isteği atarak gerçek /download/ token'ını al
+        post_res = scraper.post("https://ankergames.net/livewire/update", json=payload, headers=headers, timeout=10)
+        
+        if post_res.status_code == 200:
+            download_urls = re.findall(r'https?://ankergames\.net/download/[A-Za-z0-9_=-]+|/download/[A-Za-z0-9_=-]+', post_res.text)
+            valid_urls = []
+            for url in download_urls:
+                if url.startswith("/"):
+                    url = "https://ankergames.net" + url
+                valid_urls.append(url)
+            return list(set(valid_urls)) if valid_urls else None
+
+    except Exception as e:
+        pass
+    return None
 
 def update_download_links():
     try:
@@ -26,51 +87,27 @@ def update_download_links():
         uris = item.get("uris", [])
         if not uris:
             continue
-            
+
         page_url = uris[0]
 
-        # Zaten dönüştürülmüş indirme bağlantısı ise atla
         if "/download/" in page_url:
             continue
 
         if "/game/" in page_url:
-            try:
-                res = scraper.get(page_url, timeout=12)
-                if res.status_code == 200:
-                    download_links = []
-                    
-                    # 1. Yöntem: HTML etiketi içindeki /download/ adresleri
-                    soup = BeautifulSoup(res.text, "html.parser")
-                    for a in soup.find_all("a", href=True):
-                        href = a["href"]
-                        if "/download/" in href:
-                            if href.startswith("/"):
-                                href = "https://ankergames.net" + href
-                            download_links.append(href)
+            links = get_livewire_download_link(page_url)
+            if links:
+                item["uris"] = links
+                updated_count += 1
+                print(f"[{index}/{total}] {item['title']} -> Bağlantı yakalandı: {links[0][:40]}...")
+            else:
+                print(f"[{index}/{total}] {item['title']} -> İndirme bağlantısı bulunamadı.")
 
-                    # 2. Yöntem: JS/AlpineJS kodları veya regex ile /download/ token'ları
-                    if not download_links:
-                        found_tokens = re.findall(r'https?://ankergames\.net/download/[A-Za-z0-9_=-]+|/download/[A-Za-z0-9_=-]+', res.text)
-                        for token in found_tokens:
-                            if token.startswith("/"):
-                                token = "https://ankergames.net" + token
-                            download_links.append(token)
-
-                    if download_links:
-                        item["uris"] = list(set(download_links))
-                        updated_count += 1
-                        print(f"[{index}/{total}] {item['title']} -> Bağlantı eklendi.")
-                    else:
-                        print(f"[{index}/{total}] {item['title']} -> Bağlantı bulunamadı.")
-            except Exception as e:
-                print(f"[{index}/{total}] {item['title']} hata: {e}")
-
-            time.sleep(0.05)
+            time.sleep(0.1)
 
     with open("source.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-    print(f"\nİşlem tamamlandı! Toplam {updated_count} kayıt güncellendi.")
+    print(f"\nİşlem completed! Toplam {updated_count} kayıt güncellendi.")
 
 if __name__ == "__main__":
     update_download_links()
