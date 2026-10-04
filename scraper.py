@@ -3,7 +3,6 @@ import time
 import cloudscraper
 from bs4 import BeautifulSoup
 
-# Cloudflare engelini aşmak için istemci
 scraper = cloudscraper.create_scraper(
     browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
 )
@@ -13,12 +12,12 @@ def update_download_links():
         with open("source.json", "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        print(f"source.json dosyası okunamadı: {e}")
+        print(f"source.json okunamadı: {e}")
         return
 
     downloads = data.get("downloads", [])
     total = len(downloads)
-    print(f"Toplam {total} oyunun detay sayfaları taranıyor...\n")
+    print(f"Toplam {total} oyunun /download/ yönlendirme bağlantıları taranıyor...\n")
 
     updated_count = 0
 
@@ -29,41 +28,40 @@ def update_download_links():
             
         page_url = uris[0]
 
-        # Eğer adres zaten indirme servisine aitse atla
-        if any(domain in page_url.lower() for domain in ["qiwi", "pixeldrain", "gofile", "buzzheavier", "magnet:", "torrent", "mega.nz"]):
+        # Eğer adres zaten /download/ yönlendirmesi içeriyorsa atla
+        if "/download/" in page_url:
             continue
 
         try:
             res = scraper.get(page_url, timeout=12)
             if res.status_code == 200:
                 soup = BeautifulSoup(res.text, "html.parser")
-                found_links = []
+                download_links = []
 
-                # Detay sayfasındaki indirme bağlantılarını ayıkla
+                # Oyun detay sayfasındaki /download/ yönlendirme butonlarını ayıkla
                 for a in soup.find_all("a", href=True):
                     href = a["href"]
-                    href_lower = href.lower()
+                    if "/download/" in href or any(servis in href.lower() for servis in ["qiwi", "pixeldrain", "gofile", "buzzheavier", "torrent", "magnet:"]):
+                        if href.startswith("/"):
+                            href = "https://ankergames.net" + href
+                        download_links.append(href)
 
-                    if any(servis in href_lower for servis in ["qiwi", "pixeldrain", "gofile", "buzzheavier", "torrent", "magnet:", "mega.nz", "1fichier", "drive.google"]):
-                        found_links.append(href)
-
-                if found_links:
-                    item["uris"] = list(set(found_links))
+                if download_links:
+                    item["uris"] = list(set(download_links))
                     updated_count += 1
-                    print(f"[{index}/{total}] {item['title']} -> {len(found_links)} link eklendi.")
+                    print(f"[{index}/{total}] {item['title']} -> Indirme bağlantısı eklendi.")
                 else:
-                    print(f"[{index}/{total}] {item['title']} -> Detay sayfasında ek link bulunamadı.")
+                    print(f"[{index}/{total}] {item['title']} -> Bağlantı bulunamadı.")
 
         except Exception as e:
             print(f"[{index}/{total}] {item['title']} işlenirken hata: {e}")
 
         time.sleep(0.05)
 
-    # Güncellenmiş veriyi kaydet
     with open("source.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-    print(f"\nİşlem tamamlandı! Toplam {updated_count} oyunun linkleri güncellendi.")
+    print(f"\nİşlem tamamlandı! Toplam {updated_count} oyun güncellendi.")
 
 if __name__ == "__main__":
     update_download_links()
