@@ -9,19 +9,28 @@ scraper = cloudscraper.create_scraper(
 
 def get_livewire_download_link(page_url):
     try:
-        # 1. Oyun sayfasını çek
-        res = scraper.get(page_url, timeout=10)
+        # 1. Sayfayı çek
+        res = scraper.get(page_url, timeout=12)
+        
+        # Cloudflare veya IP engeli kontrolü
         if res.status_code != 200:
+            print(f" (HTTP {res.status_code} Engeli)", end="")
             return None
 
-        # Sayfada doğrudan /download/ linki hazır varsa al
-        direct_links = re.findall(r'https?://ankergames\.net/download/[A-Za-z0-9_=-]+', res.text)
+        html_text = res.text
+
+        # 2. Sayfada doğrudan /download/ linki varsa al
+        direct_links = re.findall(r'https?://ankergames\.net/download/[A-Za-z0-9_=-]+', html_text)
         if direct_links:
             return list(set(direct_links))
 
-        # 2. Livewire snapshot ve CSRF Token verilerini ayıkla
-        wire_match = re.search(r'wire:snapshot="([^"]+)"', res.text)
-        csrf_match = re.search(r'name="csrf-token"\s+content="([^"]+)"', res.text) or re.search(r'csrf-token":\s*"([^"]+)"', res.text)
+        # 3. generateDownloadUrl(ID) fonksiyonundaki Oyun ID'sini yakala
+        game_id_match = re.search(r'generateDownloadUrl\(["\']?(\d+)["\']?\)', html_text)
+        game_id = int(game_id_match.group(1)) if game_id_match else None
+
+        # 4. Livewire snapshot ve CSRF Token verilerini ayıkla
+        wire_match = re.search(r'wire:snapshot="([^"]+)"', html_text)
+        csrf_match = re.search(r'name="csrf-token"\s+content="([^"]+)"', html_text) or re.search(r'csrf-token":\s*"([^"]+)"', html_text)
 
         if not wire_match:
             return None
@@ -29,12 +38,15 @@ def get_livewire_download_link(page_url):
         snapshot = wire_match.group(1).replace('&quot;', '"')
         csrf_token = csrf_match.group(1) if csrf_match else ""
 
-        # Livewire güncelleme isteği için hazırlık
+        # Livewire istek parametreleri
+        params = [game_id] if game_id is not None else []
+
         headers = {
             'Content-Type': 'application/json',
             'X-Livewire': 'true',
             'X-CSRF-TOKEN': csrf_token,
-            'Referer': page_url
+            'Referer': page_url,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
         }
 
         payload = {
@@ -46,15 +58,15 @@ def get_livewire_download_link(page_url):
                         {
                             "path": "",
                             "method": "generateDownloadUrl",
-                            "params": []
+                            "params": params
                         }
                     ]
                 }
             ]
         }
 
-        # 3. Livewire endpoint'ine POST isteği atarak gerçek /download/ token'ını al
-        post_res = scraper.post("https://ankergames.net/livewire/update", json=payload, headers=headers, timeout=10)
+        # 5. Livewire POST isteği gönder
+        post_res = scraper.post("https://ankergames.net/livewire/update", json=payload, headers=headers, timeout=12)
         
         if post_res.status_code == 200:
             download_urls = re.findall(r'https?://ankergames\.net/download/[A-Za-z0-9_=-]+|/download/[A-Za-z0-9_=-]+', post_res.text)
@@ -94,15 +106,17 @@ def update_download_links():
             continue
 
         if "/game/" in page_url:
+            print(f"[{index}/{total}] {item['title']}", end="")
             links = get_livewire_download_link(page_url)
+            
             if links:
                 item["uris"] = links
                 updated_count += 1
-                print(f"[{index}/{total}] {item['title']} -> Bağlantı yakalandı: {links[0][:40]}...")
+                print(f" -> BAĞLANTI YAKALANDI: {links[0][:45]}...")
             else:
-                print(f"[{index}/{total}] {item['title']} -> İndirme bağlantısı bulunamadı.")
+                print(f" -> Bağlantı bulunamadı.")
 
-            time.sleep(0.1)
+            time.sleep(0.15)
 
     with open("source.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
