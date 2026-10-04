@@ -17,7 +17,7 @@ def update_download_links():
 
     downloads = data.get("downloads", [])
     total = len(downloads)
-    print(f"Toplam {total} oyunun /download/ yönlendirme bağlantıları taranıyor...\n")
+    print(f"Toplam {total} oyun taranıyor...\n")
 
     updated_count = 0
 
@@ -28,35 +28,29 @@ def update_download_links():
             
         page_url = uris[0]
 
-        # Eğer adres zaten /download/ yönlendirmesi içeriyorsa atla
-        if "/download/" in page_url:
-            continue
+        # Sadece oyun detay sayfalarını (/game/) tara
+        if "/game/" in page_url:
+            try:
+                res = scraper.get(page_url, timeout=12)
+                if res.status_code == 200:
+                    soup = BeautifulSoup(res.text, "html.parser")
+                    download_links = []
 
-        try:
-            res = scraper.get(page_url, timeout=12)
-            if res.status_code == 200:
-                soup = BeautifulSoup(res.text, "html.parser")
-                download_links = []
+                    for a in soup.find_all("a", href=True):
+                        href = a["href"]
+                        if "/download/" in href or any(servis in href.lower() for servis in ["qiwi", "pixeldrain", "gofile", "buzzheavier", "torrent", "magnet:"]):
+                            if href.startswith("/"):
+                                href = "https://ankergames.net" + href
+                            download_links.append(href)
 
-                # Oyun detay sayfasındaki /download/ yönlendirme butonlarını ayıkla
-                for a in soup.find_all("a", href=True):
-                    href = a["href"]
-                    if "/download/" in href or any(servis in href.lower() for servis in ["qiwi", "pixeldrain", "gofile", "buzzheavier", "torrent", "magnet:"]):
-                        if href.startswith("/"):
-                            href = "https://ankergames.net" + href
-                        download_links.append(href)
+                    if download_links:
+                        item["uris"] = list(set(download_links))
+                        updated_count += 1
+                        print(f"[{index}/{total}] {item['title']} -> Bağlantı eklendi.")
+            except Exception as e:
+                print(f"[{index}/{total}] {item['title']} hata: {e}")
 
-                if download_links:
-                    item["uris"] = list(set(download_links))
-                    updated_count += 1
-                    print(f"[{index}/{total}] {item['title']} -> Indirme bağlantısı eklendi.")
-                else:
-                    print(f"[{index}/{total}] {item['title']} -> Bağlantı bulunamadı.")
-
-        except Exception as e:
-            print(f"[{index}/{total}] {item['title']} işlenirken hata: {e}")
-
-        time.sleep(0.05)
+            time.sleep(0.05)
 
     with open("source.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
