@@ -1,15 +1,15 @@
 {
   "name": "AnkerGames Source",
   "downloads": [
-    {
-      "title": "Wasteland 3",
-      "uris": [
-        "https://ankergames.net/game/wasteland-3"
-      ],
-      "uploadDate": "2020-08-27T00:00:00.000Z",
-      "fileSize": "23.9 GB"
-    },
-    {
+   {
+  "title": "Wasteland 3",
+  "uris": [
+    "https://megadb.net/jswnh4pxt3jz",
+    "https://ankergames.net/game/wasteland-3"
+  ],
+  "uploadDate": "2020-08-27T00:00:00.000Z",
+  "fileSize": "23.9 GB"
+}
       "title": "Rune Factory 4 Special",
       "uris": [
         "https://ankergames.net/game/rune-factory-4-special"
